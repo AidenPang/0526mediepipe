@@ -6,6 +6,7 @@ const container = document.getElementById('container');
 
 // 設定 MediaPipe Face Mesh 模型
 const faceMesh = new FaceMesh({locateFile: (file) => {
+    // 確保正確載入 .wasm 等二進位檔案
     return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
 }});
 
@@ -18,6 +19,20 @@ faceMesh.setOptions({
 
 // 當模型成功處理完每一幀影像時觸發的回呼函式
 faceMesh.onResults(onResults);
+
+// 為了確保模型已載入，我們先手動初始化
+async function initModel() {
+    try {
+        statusDiv.innerText = '正在下載 MediaPipe 模型... (初次載入需數秒)';
+        await faceMesh.initialize();
+        statusDiv.innerText = '模型載入完成，正在啟動攝影機...';
+        startCamera();
+    } catch (err) {
+        console.error("載入模型失敗:", err);
+        statusDiv.innerText = '載入模型失敗，請檢查網路連線或使用其他網路。';
+        statusDiv.className = 'error';
+    }
+}
 
 function onResults(results) {
     // 當收到第一筆資料時，更新狀態文字
@@ -68,22 +83,25 @@ function onResults(results) {
     canvasCtx.restore();
 }
 
-// 初始化攝影機，並將影像串流餵給 MediaPipe
-const camera = new Camera(videoElement, {
-    onFrame: async () => {
-        await faceMesh.send({image: videoElement});
-    },
-    // 手機優化：寬高設定，並要求前置鏡頭 (MediaPipe Camera Utils 預設會處理)
-    width: 640,
-    height: 480,
-    facingMode: 'user'
-});
+function startCamera() {
+    // 初始化攝影機，並將影像串流餵給 MediaPipe
+    const camera = new Camera(videoElement, {
+        onFrame: async () => {
+            await faceMesh.send({image: videoElement});
+        },
+        // 手機優化：寬高設定，並要求前置鏡頭 (MediaPipe Camera Utils 預設會處理)
+        width: 640,
+        height: 480,
+        facingMode: 'user'
+    });
 
-// 啟動相機
-camera.start().then(() => {
-    statusDiv.innerText = '正在初始化模型... (初次載入需數秒)';
-}).catch(err => {
-    console.error("無法取得攝影機權限:", err);
-    statusDiv.innerText = '無法啟動攝影機，請確認瀏覽器已給予權限。';
-    statusDiv.className = 'error';
-});
+    // 啟動相機
+    camera.start().catch(err => {
+        console.error("無法取得攝影機權限:", err);
+        statusDiv.innerText = '無法啟動攝影機，請確認瀏覽器已給予權限。';
+        statusDiv.className = 'error';
+    });
+}
+
+// 啟動應用程式
+initModel();
