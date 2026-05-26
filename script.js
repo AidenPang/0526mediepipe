@@ -29,10 +29,11 @@ const colorMap = {
 
 async function init() {
     try {
-        // 載入輕量級臉部偵測模型與表情偵測模型
+        // 載入輕量級臉部偵測模型、表情偵測模型與特徵點偵測模型
         await Promise.all([
             faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
+            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
+            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
         ]);
         
         statusDiv.innerText = '模型載入完成，正在啟動攝影機...';
