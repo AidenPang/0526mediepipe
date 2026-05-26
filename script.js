@@ -34,7 +34,7 @@ function detectEmotion(landmarks) {
     // 當嘴角大幅高於下唇時，代表正在微笑
     const smileThreshold = (bottomLipY - (leftCornerY + rightCornerY) / 2) / faceHeight;
 
-    let emotion = "中性 (Neutral)";
+    let emotion = "平靜 (Neutral)";
     let emoji = "😐";
 
     // 簡單的規則式情緒判斷
