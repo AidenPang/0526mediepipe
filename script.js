@@ -68,17 +68,20 @@ video.addEventListener('play', () => {
     faceapi.matchDimensions(canvas, displaySize);
 
     setInterval(async () => {
-        // 偵測所有臉部，並附帶表情資訊
+        // 偵測所有臉部，並附帶特徵點與表情資訊
         const detections = await faceapi.detectAllFaces(
             video, 
             new faceapi.TinyFaceDetectorOptions()
-        ).withFaceExpressions();
+        ).withFaceLandmarks().withFaceExpressions();
 
         // 調整偵測框的尺寸以符合畫布
         const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
         // 清空上一影格的畫布
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 繪製臉部特徵點
+        faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
 
         resizedDetections.forEach(detection => {
             const box = detection.detection.box;
