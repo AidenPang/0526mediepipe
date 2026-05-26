@@ -1,6 +1,7 @@
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const statusDiv = document.getElementById('status');
+const container = document.getElementById('container');
 
 // 使用開源的 face-api.js 模型 CDN
 const MODEL_URL = 'https://vladmandic.github.io/face-api/model/';
@@ -29,58 +30,69 @@ const colorMap = {
 
 async function init() {
     try {
-        // 載入輕量級臉部偵測模型、表情偵測模型與特徵點偵測模型
+        // 【手機優化】改用 faceLandmark68TinyNet (Tiny 特徵點模型)，大幅降低運算負擔與載入時間
         await Promise.all([
             faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
             faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
-            faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+            faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL)
         ]);
         
         statusDiv.innerText = '模型載入完成，正在啟動攝影機...';
-        statusDiv.style.color = '#4caf50';
+        statusDiv.className = 'success';
         startVideo();
     } catch (err) {
         console.error("載入模型失敗:", err);
-        statusDiv.innerText = '載入模型失敗，請檢查網路連線或 F12 控制台。';
-        statusDiv.style.color = '#f44336';
+        statusDiv.innerText = '載入模型失敗，請檢查網路連線。';
+        statusDiv.className = 'error';
     }
 }
 
 function startVideo() {
-    navigator.mediaDevices.getUserMedia({ video: true })
-        .then(stream => {
-            video.srcObject = stream;
-            statusDiv.innerText = '系統運作中，請將臉部對準鏡頭。';
-        })
-        .catch(err => {
-            console.error("無法取得攝影機權限:", err);
-            statusDiv.innerText = '無法啟動攝影機，請確認瀏覽器已給予攝影機權限。';
-            statusDiv.style.color = '#f44336';
-        });
+    // 【手機優化】強制要求使用前置鏡頭 (facingMode: 'user')
+    navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } 
+    })
+    .then(stream => {
+        video.srcObject = stream;
+        statusDiv.innerText = '系統運作中，請將臉部對準鏡頭。';
+    })
+    .catch(err => {
+        console.error("無法取得攝影機權限:", err);
+        statusDiv.innerText = '無法啟動攝影機，請確認瀏覽器已給予權限。';
+        statusDiv.className = 'error';
+    });
 }
 
-// 當影像開始播放時，觸發即時偵測
+// 當取得影片真實尺寸後，設定容器的長寬比，確保手機螢幕上不變形
+video.addEventListener('loadedmetadata', () => {
+    const ratio = video.videoWidth / video.videoHeight;
+    container.style.aspectRatio = ratio;
+});
+
 video.addEventListener('play', () => {
     const ctx = canvas.getContext('2d');
-    const displaySize = { width: video.width, height: video.height };
     
-    // 將 canvas 大小與 video 對齊
+    // 【手機優化】將畫布實際解析度設定為影片的真實解析度
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    const displaySize = { width: video.videoWidth, height: video.videoHeight };
     faceapi.matchDimensions(canvas, displaySize);
 
     setInterval(async () => {
-        // 偵測所有臉部，並附帶特徵點與表情資訊
+        if (video.paused || video.ended) return;
+
+        // 【修復】withFaceLandmarks(true) 中的 true 代表強制使用 Tiny 模型，否則它會找不到預設的笨重模型而失敗
         const detections = await faceapi.detectAllFaces(
             video, 
-            new faceapi.TinyFaceDetectorOptions()
-        ).withFaceLandmarks().withFaceExpressions();
+            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 })
+        ).withFaceLandmarks(true).withFaceExpressions();
 
-        // 調整偵測框的尺寸以符合畫布
         const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
-        // 清空上一影格的畫布
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // 繪製臉部特徵點
+        // 繪製臉部全部 68 個特徵點
         faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
 
         resizedDetections.forEach(detection => {
@@ -101,16 +113,18 @@ video.addEventListener('play', () => {
             ctx.lineWidth = 3;
             ctx.strokeRect(box.x, box.y, box.width, box.height);
             
-            // 繪製情緒標籤背景
+            // 繪製情緒標籤背景 (加上些微透明度更具質感)
             ctx.fillStyle = color;
-            ctx.fillRect(box.x, box.y - 30, 140, 30);
+            ctx.globalAlpha = 0.85;
+            ctx.fillRect(box.x, box.y - 32, 120, 32);
+            ctx.globalAlpha = 1.0;
 
             // 繪製情緒標籤文字
             ctx.fillStyle = '#000000';
-            ctx.font = 'bold 18px sans-serif';
-            ctx.fillText(`${zhLabel} (${score}%)`, box.x + 5, box.y - 8);
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText(`${zhLabel} (${score}%)`, box.x + 5, box.y - 10);
         });
-    }, 100); // 100 毫秒偵測一次 (約 10 FPS)
+    }, 100);
 });
 
 // 啟動應用程式
