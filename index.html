@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI 即時臉部與情緒偵測</title>
+    <title>MediaPipe 即時臉部特徵點偵測</title>
     <style>
         :root {
             --bg-gradient: linear-gradient(135deg, #141E30, #243B55);
@@ -71,19 +71,20 @@
         #container {
             position: relative;
             width: 100%;
-            max-width: 720px; /* 電腦版最大寬度限制 */
+            max-width: 720px;
             border-radius: 16px;
             overflow: hidden;
             box-shadow: 0 10px 30px rgba(0,0,0,0.6);
             background-color: #000;
             border: 1px solid var(--glass-border);
-            /* 讓影片和畫布自然貼合容器 */
             display: flex;
             justify-content: center;
             align-items: center;
+            /* 預設 4:3 比例，載入影片後會由 JS 動態更新 */
+            aspect-ratio: 4/3;
         }
 
-        /* 影片與畫布設定為寬高 100%，並透過 scaleX 達到鏡像效果 */
+        /* 影片與畫布設定為鏡像翻轉 */
         video, canvas {
             position: absolute;
             top: 0;
@@ -93,6 +94,7 @@
             display: block;
             transform: scaleX(-1);
             -webkit-transform: scaleX(-1);
+            object-fit: cover;
         }
 
         canvas {
@@ -105,18 +107,21 @@
             #container { border-radius: 12px; }
         }
     </style>
-    <!-- 引入 face-api.js -->
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1/dist/face-api.js"></script>
+    <!-- 引入 MediaPipe Face Mesh 與相關工具 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 </head>
 <body>
     <header>
-        <h1>AI 臉部與情緒偵測</h1>
-        <div id="status" class="loading">正在載入 AI 模型，請稍候...</div>
+        <h1>MediaPipe 臉部 468 點偵測</h1>
+        <div id="status" class="loading">正在載入 MediaPipe 模型，請稍候...</div>
     </header>
     
     <div id="main-wrapper">
         <div id="container">
-            <video id="video" autoplay muted playsinline></video>
+            <video id="video" autoplay playsinline></video>
             <canvas id="canvas"></canvas>
         </div>
     </div>

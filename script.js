@@ -1,131 +1,89 @@
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
+const videoElement = document.getElementById('video');
+const canvasElement = document.getElementById('canvas');
+const canvasCtx = canvasElement.getContext('2d');
 const statusDiv = document.getElementById('status');
 const container = document.getElementById('container');
 
-// 使用開源的 face-api.js 模型 CDN
-const MODEL_URL = 'https://vladmandic.github.io/face-api/model/';
+// 設定 MediaPipe Face Mesh 模型
+const faceMesh = new FaceMesh({locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+}});
 
-// 情緒的中文對照表
-const expressionMap = {
-    neutral: '平靜',
-    happy: '開心',
-    sad: '悲傷',
-    angry: '生氣',
-    fearful: '害怕',
-    disgusted: '厭惡',
-    surprised: '驚訝'
-};
+faceMesh.setOptions({
+    maxNumFaces: 1, // 為了效能，預設偵測 1 張臉，可依需求調整
+    refineLandmarks: true, // 啟用瞳孔與嘴唇的更精細特徵點 (478 點)
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+});
 
-// 顏色對照表，讓不同情緒有不同顏色的框
-const colorMap = {
-    neutral: '#A0A0A0',
-    happy: '#FFD700',
-    sad: '#1E90FF',
-    angry: '#FF4500',
-    fearful: '#8A2BE2',
-    disgusted: '#32CD32',
-    surprised: '#FF69B4'
-};
+// 當模型成功處理完每一幀影像時觸發的回呼函式
+faceMesh.onResults(onResults);
 
-async function init() {
-    try {
-        // 【手機優化】改用 faceLandmark68TinyNet (Tiny 特徵點模型)，大幅降低運算負擔與載入時間
-        await Promise.all([
-            faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-            faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
-            faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL)
-        ]);
-        
-        statusDiv.innerText = '模型載入完成，正在啟動攝影機...';
+function onResults(results) {
+    // 當收到第一筆資料時，更新狀態文字
+    if (statusDiv.className === 'loading') {
+        statusDiv.innerText = '系統運作中，成功捕捉臉部。';
         statusDiv.className = 'success';
-        startVideo();
-    } catch (err) {
-        console.error("載入模型失敗:", err);
-        statusDiv.innerText = '載入模型失敗，請檢查網路連線。';
-        statusDiv.className = 'error';
     }
+
+    // 將畫布大小調整為與影片真實尺寸一致
+    if (canvasElement.width !== videoElement.videoWidth) {
+        canvasElement.width = videoElement.videoWidth;
+        canvasElement.height = videoElement.videoHeight;
+        container.style.aspectRatio = videoElement.videoWidth / videoElement.videoHeight;
+    }
+
+    canvasCtx.save();
+    // 清除上一幀的畫布
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    
+    // 如果有偵測到臉部特徵點
+    if (results.multiFaceLandmarks) {
+        for (const landmarks of results.multiFaceLandmarks) {
+            
+            // 繪製臉部網格 (Face Mesh) 連線
+            drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, 
+                {color: '#C0C0C070', lineWidth: 1}); // 銀灰色半透明網格
+            
+            // 繪製右眼
+            drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#FF3030'});
+            drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYEBROW, {color: '#FF3030'});
+            drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_IRIS, {color: '#FF3030'});
+            
+            // 繪製左眼
+            drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#30FF30'});
+            drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYEBROW, {color: '#30FF30'});
+            drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_IRIS, {color: '#30FF30'});
+            
+            // 繪製臉部輪廓
+            drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, {color: '#E0E0E0'});
+            
+            // 繪製嘴唇
+            drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#E0E0E0'});
+
+            // 若不需要全部連線，也可以用 drawLandmarks 畫出每一顆點：
+            // drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1, radius: 1});
+        }
+    }
+    canvasCtx.restore();
 }
 
-function startVideo() {
-    // 【手機優化】強制要求使用前置鏡頭 (facingMode: 'user')
-    navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } 
-    })
-    .then(stream => {
-        video.srcObject = stream;
-        statusDiv.innerText = '系統運作中，請將臉部對準鏡頭。';
-    })
-    .catch(err => {
-        console.error("無法取得攝影機權限:", err);
-        statusDiv.innerText = '無法啟動攝影機，請確認瀏覽器已給予權限。';
-        statusDiv.className = 'error';
-    });
-}
-
-// 當取得影片真實尺寸後，設定容器的長寬比，確保手機螢幕上不變形
-video.addEventListener('loadedmetadata', () => {
-    const ratio = video.videoWidth / video.videoHeight;
-    container.style.aspectRatio = ratio;
+// 初始化攝影機，並將影像串流餵給 MediaPipe
+const camera = new Camera(videoElement, {
+    onFrame: async () => {
+        await faceMesh.send({image: videoElement});
+    },
+    // 手機優化：寬高設定，並要求前置鏡頭 (MediaPipe Camera Utils 預設會處理)
+    width: 640,
+    height: 480,
+    facingMode: 'user'
 });
 
-video.addEventListener('play', () => {
-    const ctx = canvas.getContext('2d');
-    
-    // 【手機優化】將畫布實際解析度設定為影片的真實解析度
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    
-    const displaySize = { width: video.videoWidth, height: video.videoHeight };
-    faceapi.matchDimensions(canvas, displaySize);
-
-    setInterval(async () => {
-        if (video.paused || video.ended) return;
-
-        // 【修復】withFaceLandmarks(true) 中的 true 代表強制使用 Tiny 模型，否則它會找不到預設的笨重模型而失敗
-        const detections = await faceapi.detectAllFaces(
-            video, 
-            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 })
-        ).withFaceLandmarks(true).withFaceExpressions();
-
-        const resizedDetections = faceapi.resizeResults(detections, displaySize);
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // 繪製臉部全部 68 個特徵點
-        faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
-
-        resizedDetections.forEach(detection => {
-            const box = detection.detection.box;
-            const expressions = detection.expressions;
-            
-            // 找出機率最高的情緒
-            const maxExpression = Object.keys(expressions).reduce((a, b) => 
-                expressions[a] > expressions[b] ? a : b
-            );
-            
-            const score = Math.round(expressions[maxExpression] * 100);
-            const zhLabel = expressionMap[maxExpression];
-            const color = colorMap[maxExpression] || '#00FF00';
-
-            // 繪製自定義的臉部外框
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 3;
-            ctx.strokeRect(box.x, box.y, box.width, box.height);
-            
-            // 繪製情緒標籤背景 (加上些微透明度更具質感)
-            ctx.fillStyle = color;
-            ctx.globalAlpha = 0.85;
-            ctx.fillRect(box.x, box.y - 32, 120, 32);
-            ctx.globalAlpha = 1.0;
-
-            // 繪製情緒標籤文字
-            ctx.fillStyle = '#000000';
-            ctx.font = 'bold 16px sans-serif';
-            ctx.fillText(`${zhLabel} (${score}%)`, box.x + 5, box.y - 10);
-        });
-    }, 100);
+// 啟動相機
+camera.start().then(() => {
+    statusDiv.innerText = '正在初始化模型... (初次載入需數秒)';
+}).catch(err => {
+    console.error("無法取得攝影機權限:", err);
+    statusDiv.innerText = '無法啟動攝影機，請確認瀏覽器已給予權限。';
+    statusDiv.className = 'error';
 });
-
-// 啟動應用程式
-init();
